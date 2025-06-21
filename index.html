@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Live Chat</title>
+  <style>
+    body { font-family: Arial; margin: 20px; }
+    #messages { border: 1px solid #ccc; height: 300px; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+    input, button, select { padding: 10px; margin: 5px 0; font-size: 16px; width: 100%; }
+    .group { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .group span { flex: 1; cursor: pointer; }
+    .group button { background: red; color: white; border: none; padding: 4px 8px; cursor: pointer; }
+    #online-users { font-size: 14px; margin: 10px 0; color: green; }
+    .typing-indicator { font-size: 12px; color: #999; }
+  </style>
+</head>
+<body>
+  <h2>💬 Live Chat</h2>
+  <div id="login-area">
+    <button onclick="loginWithGoogle()">Sign in with Google</button>
+    <button onclick="continueAsGuest()">Continue as Guest</button>
+  </div>
+
+  <div id="chat-ui" style="display:none">
+    <div id="online-users"></div>
+    <div id="group-list"></div>
+    <input id="group-name" placeholder="New group name" />
+    <button onclick="createGroup()">Create Group</button>
+    <div id="messages"></div>
+    <input id="message" placeholder="Type a message..." oninput="sendTyping()" />
+    <button onclick="sendMessage()">Send</button>
+    <div class="typing-indicator" id="typing"></div>
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCs7FPXY5C4TtNl2N2HVOocbDz6gzSyeu0",
+      authDomain: "chat-live-a1267.firebaseapp.com",
+      databaseURL: "https://chat-live-a1267-default-rtdb.firebaseio.com",
+      projectId: "chat-live-a1267",
+      storageBucket: "chat-live-a1267.appspot.com",
+      messagingSenderId: "285360741601",
+      appId: "1:285360741601:web:4842d1c6d457d3e9e0eba0"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.database();
+
+    let currentUser = null;
+    let activeGroupId = null;
+
+    function loginWithGoogle() {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      auth.signInWithPopup(provider);
+    }
+
+    function continueAsGuest() {
+      auth.signInAnonymously().then(() => {
+        const name = prompt("Enter your name:");
+        currentUser = auth.currentUser;
+        currentUser.updateProfile({ displayName: name || "Guest" });
+      });
+    }
+
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        currentUser = user;
+        document.getElementById("login-area").style.display = "none";
+        document.getElementById("chat-ui").style.display = "block";
+        db.ref("online/" + user.uid).set(user.displayName || "Guest");
+        db.ref("online/" + user.uid).onDisconnect().remove();
+        loadGroups();
+        setInterval(loadOnlineUsers, 2000);
+      }
+    });
+
+    function loadOnlineUsers() {
+      db.ref("online").once("value", snap => {
+        const users = Object.values(snap.val() || {}).join(", ");
+        document.getElementById("online-users").innerText = "Online: " + users;
+      });
+    }
+
+    function createGroup() {
+      const name = document.getElementById("group-name").value;
+      if (!name.trim()) return;
+      const newGroup = db.ref("groups").push();
+      newGroup.set({ name, creator: currentUser.uid });
+      db.ref(`groups/${newGroup.key}/members/${currentUser.uid}`).set(true);
+      document.getElementById("group-name").value = "";
+    }
+
+    function loadGroups() {
+      db.ref("groups").on("value", snap => {
+        const groups = snap.val() || {};
+        const list = document.getElementById("group-list");
+        list.innerHTML = "<h3>Groups</h3>";
+        Object.entries(groups).forEach(([id, group]) => {
+          const div = document.createElement("div");
+          div.className = "group";
+
+          const name = document.createElement("span");
+          name.textContent = group.name;
+          name.onclick = () => joinGroup(id, group.name);
+
+          div.appendChild(name);
+
+          if (group.creator === currentUser.uid) {
+            const del = document.createElement("button");
+            del.textContent = "🗑️";
+            del.onclick = () => deleteGroup(id);
+            div.appendChild(del);
+          }
+
+          list.appendChild(div);
+        });
+      });
+    }
+
+    function deleteGroup(groupId) {
+      if (confirm("Delete this group and all messages?")) {
+        db.ref("groups/" + groupId).remove();
+        db.ref("messages/" + groupId).remove();
+      }
+    }
+
+    function joinGroup(id, name) {
+      db.ref(`groups/${id}/members/${currentUser.uid}`).set(true);
+      setActiveGroup(id, name);
+    }
+
+    function setActiveGroup(id, name) {
+      activeGroupId = id;
+      document.getElementById("messages").innerHTML = `<h4>${name}</h4>`;
+      db.ref("messages/" + id).off();
+      db.ref("messages/" + id).on("child_added", snap => {
+        const msg = snap.val();
+        const div = document.createElement("div");
+        div.textContent = `${msg.name}: ${msg.text}`;
+        document.getElementById("messages").appendChild(div);
+        document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
+      });
+      db.ref("typing/" + id).on("value", snap => {
+        const data = snap.val() || {};
+        const typingUsers = Object.entries(data)
+          .filter(([uid, isTyping]) => uid !== currentUser.uid && isTyping)
+          .map(([uid, _]) => uid);
+        document.getElementById("typing").textContent = typingUsers.length ? "Someone is typing..." : "";
+      });
+    }
+
+    function sendMessage() {
+      const text = document.getElementById("message").value;
+      if (!text.trim()) return;
+      db.ref("messages/" + activeGroupId).push({
+        name: currentUser.displayName || "Guest",
+        text
+      });
+      document.getElementById("message").value = "";
+      sendTyping(false);
+    }
+
+    let typingTimer;
+    function sendTyping(status = true) {
+      if (!activeGroupId) return;
+      db.ref(`typing/${activeGroupId}/${currentUser.uid}`).set(status);
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(() => sendTyping(false), 3000);
+    }
+  </script>
+</body>
+</html>
