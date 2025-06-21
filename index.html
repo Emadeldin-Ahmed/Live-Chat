@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Live Chat with Rooms & Online Users</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f9fafb;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      color: #333;
+    }
+    h2 {
+      margin-bottom: 15px;
+      color: #1976d2;
+      font-weight: 700;
+    }
+    #container {
+      width: 400px;
+      max-width: 95vw;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+    }
+    #auth-buttons button,
+    #room-select button,
+    #signout-btn,
+    #send-btn {
+      background-color: #1976d2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 16px;
+      cursor: pointer;
+      width: 100%;
+      margin-bottom: 10px;
+      transition: background-color 0.3s ease;
+      font-weight: 600;
+    }
+    #auth-buttons button:hover,
+    #room-select button:hover,
+    #signout-btn:hover,
+    #send-btn:hover {
+      background-color: #155fa0;
+    }
+    #guest-signin-btn {
+      background-color: #555;
+    }
+    #guest-signin-btn:hover {
+      background-color: #333;
+    }
+    #room-select {
+      margin-bottom: 20px;
+    }
+    #room-select h3 {
+      margin-bottom: 10px;
+      color: #444;
+    }
+    #room-list {
+      list-style: none;
+      padding: 0;
+      max-height: 140px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fafafa;
+    }
+    #room-list li {
+      border-bottom: 1px solid #ddd;
+    }
+    #room-list li:last-child {
+      border-bottom: none;
+    }
+    #room-list button {
+      background: transparent;
+      color: #1976d2;
+      font-weight: 600;
+      text-align: left;
+      padding: 12px 15px;
+      width: 100%;
+      border-radius: 0;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    #room-list button:hover {
+      background-color: #e3f0fc;
+    }
+    #new-room-name {
+      width: calc(100% - 110px);
+      padding: 10px;
+      font-size: 16px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      margin-right: 10px;
+      outline-offset: 2px;
+      transition: border-color 0.3s ease;
+    }
+    #new-room-name:focus {
+      border-color: #1976d2;
+      outline: none;
+    }
+    #chat-area {
+      display: none;
+      flex-direction: column;
+    }
+    #current-room-title {
+      font-weight: 700;
+      color: #1976d2;
+      margin-bottom: 10px;
+    }
+    #messages {
+      background: #f1f3f5;
+      height: 280px;
+      overflow-y: scroll;
+      padding: 15px;
+      border-radius: 6px;
+      border: 1px solid #ddd;
+      margin-bottom: 15px;
+      font-size: 15px;
+      line-height: 1.4;
+      color: #222;
+    }
+    .message {
+      margin-bottom: 12px;
+      padding-bottom: 5px;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    .message:last-child {
+      border-bottom: none;
+    }
+    #message-input {
+      padding: 12px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      outline-offset: 2px;
+      margin-bottom: 10px;
+      width: 100%;
+      box-sizing: border-box;
+      transition: border-color 0.3s ease;
+    }
+    #message-input:focus {
+      border-color: #1976d2;
+      outline: none;
+    }
+    #online-users {
+      margin-top: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fafafa;
+      padding: 10px 15px;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+    #online-users h3 {
+      margin-top: 0;
+      margin-bottom: 10px;
+      font-weight: 700;
+      color: #444;
+    }
+    #online-users ul {
+      list-style: none;
+      padding-left: 0;
+      margin: 0;
+      font-size: 14px;
+      color: #555;
+    }
+    #online-users li {
+      margin-bottom: 6px;
+      padding-left: 8px;
+      position: relative;
+    }
+    #online-users li::before {
+      content: "●";
+      color: #1976d2;
+      position: absolute;
+      left: 0;
+      top: 3px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="container">
+    <h2>💬 Live Chat with Rooms</h2>
+
+    <div id="auth-buttons">
+      <button id="google-signin-btn">Sign in with Google</button>
+      <button id="guest-signin-btn">Continue as Guest</button>
+    </div>
+
+    <button id="signout-btn">Sign Out</button>
+
+    <div id="room-select" style="display:none;">
+      <h3>Select a Chat Room:</h3>
+      <ul id="room-list"></ul>
+      <div style="display:flex; margin-top:10px;">
+        <input type="text" id="new-room-name" placeholder="New room name" />
+        <button class="create-room-btn">Create Room</button>
+      </div>
+    </div>
+
+    <div id="chat-area">
+      <h3 id="current-room-title"></h3>
+      <div id="messages"></div>
+      <input id="message-input" type="text" placeholder="Type a message..." autocomplete="off" />
+      <button id="send-btn">Send</button>
+    </div>
+
+    <div id="online-users">
+      <h3>Who is Online:</h3>
+      <ul id="online-list"></ul>
+    </div>
+  </div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCs7FPXY5C4TtNl2N2HVOocbDz6gzSyeu0",
+      authDomain: "chat-live-a1267.firebaseapp.com",
+      databaseURL: "https://chat-live-a1267-default-rtdb.firebaseio.com",
+      projectId: "chat-live-a1267",
+      storageBucket: "chat-live-a1267.appspot.com",
+      messagingSenderId: "285360741601",
+      appId: "1:285360741601:web:4842d1c6d457d3e9e0eba0"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.database();
+
+    // Elements
+    const googleBtn = document.getElementById('google-signin-btn');
+    const guestBtn = document.getElementById('guest-signin-btn');
+    const signOutBtn = document.getElementById('signout-btn');
+    const authButtons = document.getElementById('auth-buttons');
+    const roomSelect = document.getElementById('room-select');
+    const roomList = document.getElementById('room-list');
+    const createRoomBtn = document.querySelector('.create-room-btn');
+    const newRoomNameInput = document.getElementById('new-room-name');
+    const chatArea = document.getElementById('chat-area');
+    const currentRoomTitle = document.getElementById('current-room-title');
+    const messagesDiv = document.getElementById('messages');
+    const messageInput = document.getElementById('message-input');
+    const sendBtn = document.getElementById('send-btn');
+    const onlineList = document.getElementById('online-list');
+
+    let currentRoomId = null;
+    let userDisplayName = null;
+
+    googleBtn.onclick = () => {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      auth.signInWithPopup(provider).catch(console.error);
+    };
+    guestBtn.onclick = () => {
+      auth.signInAnonymously().catch(console.error);
+    };
+    signOutBtn.onclick = () => {
+      auth.signOut();
+    };
+
+    function setUserOnline(roomId, uid, name) {
+      const userRef = db.ref(`onlineUsers/${roomId}/${uid}`);
+      userRef.set({ name });
+      userRef.onDisconnect().remove();
+    }
+
+    function removeUserOnline(roomId, uid) {
+      db.ref(`onlineUsers/${roomId}/${uid}`).remove();
+    }
+
+    function loadRooms() {
+      db.ref('rooms').on('value', snapshot => {
+        const rooms = snapshot.val() || {};
+        roomList.innerHTML = '';
+        Object.entries(rooms).forEach(([id, room]) => {
+          const li = document.createElement('li');
+          const btn = document.createElement('button');
+          btn.textContent = room.name || 'Unnamed Room';
+          btn.style.width = '100%';
+          btn.onclick = () => selectRoom(id, room.name);
+          li.appendChild(btn);
+          roomList.appendChild(li);
+        });
+      });
+    }
+
+    createRoomBtn.onclick = () => {
+      const roomName = newRoomNameInput.value.trim();
+      if (!roomName) return alert('Enter a room name');
+      const newRoomRef = db.ref('rooms').push();
+      newRoomRef.set({ name: roomName });
+      newRoomNameInput.value = '';
+      selectRoom(newRoomRef.key, roomName);
+    };
+
+    function selectRoom(roomId, roomName) {
+      if (currentRoomId === roomId) return;
+
+      if (currentRoomId && auth.currentUser) {
+        removeUserOnline(currentRoomId, auth.currentUser.uid);
+      }
+
+      currentRoomId = roomId;
+      currentRoomTitle.textContent = `Room: ${roomName}`;
+      messagesDiv.innerHTML = '';
+      messagesDiv.style.display = 'block';
+
+      if (auth.currentUser) {
+        setUserOnline(currentRoomId, auth.currentUser.uid, userDisplayName);
+      }
+
+      db.ref('messages/' + currentRoomId).off();
+      db.ref('messages/' + currentRoomId).on('child_added', snapshot => {
+        const msg = snapshot.val();
+        const div = document.createElement('div');
+        div.className = 'message';
+        div.textContent = `${msg.name}: ${msg.message}`;
+        messagesDiv.appendChild(div);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      });
+
+      db.ref('onlineUsers/' + currentRoomId).off();
+      db.ref('onlineUsers/' + currentRoomId).on('value', snapshot => {
+        const users = snapshot.val() || {};
+        onlineList.innerHTML = '';
+        const userNames = Object.values(users).map(u => u.name);
+        if (userNames.length) {
+          userNames.forEach(name => {
+            const li = document.createElement('li');
+            li.textContent = name;
+            onlineList.appendChild(li);
+          });
+        } else {
+          onlineList.textContent = 'No one is online';
+        }
+      });
+    }
+
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        authButtons.style.display = 'none';
+        signOutBtn.style.display = 'block';
+        roomSelect.style.display = 'block';
+
+        userDisplayName = user.displayName;
+        if (!userDisplayName) {
+          userDisplayName = 'Guest #' + user.uid.substring(0, 4);
+        }
+
+        loadRooms();
+
+        chatArea.style.display = 'none';
+        messagesDiv.style.display = 'none';
+        onlineList.innerHTML = 'Select a room to join';
+      } else {
+        if (currentRoomId && user) {
+          removeUserOnline(currentRoomId, user.uid);
+        }
+        currentRoomId = null;
+        userDisplayName = null;
+
+        authButtons.style.display = 'block';
+        signOutBtn.style.display = 'none';
+        roomSelect.style.display = 'none';
+        chatArea.style.display = 'none';
+        messagesDiv.style.display = 'none';
+        onlineList.innerHTML = '';
+      }
+    });
+
+    sendBtn.onclick = () => {
+      const user = auth.currentUser;
+      const message = messageInput.value.trim();
+      if (!user || !message || !currentRoomId) return;
+
+      db.ref('messages/' + currentRoomId).push({
+        name: userDisplayName,
+        message
+      });
+      messageInput.value = '';
+    };
+
+    window.addEventListener('beforeunload', () => {
+      if (auth.currentUser && currentRoomId) {
+        removeUserOnline(currentRoomId, auth.currentUser.uid);
+      }
+    });
+  </script>
+</body>
+</html>
