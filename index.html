@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Live Chat</title>
+  <style>
+    body { font-family: Arial; margin: 0; padding: 20px; background: #f0f0f0; }
+    #main { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 10px; }
+    #messages { border: 1px solid #ccc; height: 250px; overflow-y: auto; padding: 10px; margin-bottom: 10px; }
+    #onlineUsers, #groupsList { margin: 10px 0; }
+    input, button { margin-top: 5px; padding: 10px; font-size: 16px; width: 100%; box-sizing: border-box; }
+    .section { margin-top: 20px; }
+    .group-item, .user-item { cursor: pointer; padding: 5px; }
+    .group-item:hover, .user-item:hover { background: #eee; }
+    #typingStatus { font-size: 12px; color: gray; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div id="main">
+    <h2>💬 Live Chat</h2>
+
+    <div id="auth">
+      <button onclick="signInWithGoogle()">Sign in with Google</button>
+      <button onclick="continueAsGuest()">Continue as Guest</button>
+    </div>
+
+    <div id="chatUI" style="display:none;">
+      <div><strong>Logged in as:</strong> <span id="userName"></span></div>
+
+      <div class="section">
+        <h3>Online Users</h3>
+        <div id="onlineUsers"></div>
+      </div>
+
+      <div class="section">
+        <h3>Groups</h3>
+        <input type="text" id="newGroupName" placeholder="Group name" />
+        <button onclick="createGroup()">Create Group</button>
+        <div id="groupsList"></div>
+      </div>
+
+      <div class="section">
+        <h3 id="chatTitle">Group Chat</h3>
+        <div id="messages"></div>
+        <div id="typingStatus"></div>
+        <input type="text" id="messageInput" placeholder="Type a message..." oninput="updateTyping()" />
+        <button onclick="sendMessage()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCs7FPXY5C4TtNl2N2HVOocbDz6gzSyeu0",
+      authDomain: "chat-live-a1267.firebaseapp.com",
+      databaseURL: "https://chat-live-a1267-default-rtdb.firebaseio.com",
+      projectId: "chat-live-a1267",
+      storageBucket: "chat-live-a1267.appspot.com",
+      messagingSenderId: "285360741601",
+      appId: "1:285360741601:web:4842d1c6d457d3e9e0eba0"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.database();
+
+    let currentUser = null;
+    let currentGroup = null;
+    let currentGroupName = "";
+    let typingRef = null;
+
+    function signInWithGoogle() {
+      auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+    }
+
+    function continueAsGuest() {
+      const name = prompt("Enter your name:");
+      auth.signInAnonymously().then(() => {
+        if (name) {
+          auth.currentUser.updateProfile({ displayName: name });
+        }
+      });
+    }
+
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        currentUser = user;
+        document.getElementById("auth").style.display = "none";
+        document.getElementById("chatUI").style.display = "block";
+        document.getElementById("userName").textContent = user.displayName || "Guest";
+
+        db.ref(`onlineUsers/${user.uid}`).set({ name: user.displayName });
+        db.ref(`onlineUsers/${user.uid}`).onDisconnect().remove();
+
+        loadOnlineUsers();
+        loadBrowseGroups();
+      }
+    });
+
+    function loadOnlineUsers() {
+      db.ref('onlineUsers').on('value', snapshot => {
+        const users = snapshot.val() || {};
+        const onlineUsersDiv = document.getElementById("onlineUsers");
+        onlineUsersDiv.innerHTML = "";
+        Object.keys(users).forEach(uid => {
+          if (uid !== currentUser.uid) {
+            const div = document.createElement("div");
+            div.className = "user-item";
+            div.textContent = users[uid].name;
+            div.onclick = () => setActiveGroup(`private_${uid}_${currentUser.uid}`, users[uid].name);
+            onlineUsersDiv.appendChild(div);
+          }
+        });
+      });
+    }
+
+    function createGroup() {
+      const name = document.getElementById("newGroupName").value.trim();
+      if (!name) return;
+      const id = db.ref("groups").push().key;
+      db.ref(`groups/${id}`).set({ name, creator: currentUser.uid });
+      db.ref(`groups/${id}/members/${currentUser.uid}`).set(true);
+      setActiveGroup(id, name);
+    }
+
+    function loadBrowseGroups() {
+      db.ref("groups").on("value", snapshot => {
+        const groups = snapshot.val() || {};
+        const list = document.getElementById("groupsList");
+        list.innerHTML = "";
+        Object.keys(groups).forEach(groupId => {
+          const group = groups[groupId];
+          const li = document.createElement("div");
+          li.className = "group-item";
+          li.textContent = group.name;
+
+          db.ref(`groups/${groupId}/members/${currentUser.uid}`).once("value", snap => {
+            const isMember = snap.exists();
+            if (isMember) li.textContent += " ✅";
+            li.onclick = () => {
+              if (!isMember) {
+                db.ref(`groups/${groupId}/members/${currentUser.uid}`).set(true, () => {
+                  setActiveGroup(groupId, group.name);
+                });
+              } else {
+                setActiveGroup(groupId, group.name);
+              }
+            };
+          });
+
+          list.appendChild(li);
+        });
+      });
+    }
+
+    function setActiveGroup(groupId, name) {
+      currentGroup = groupId;
+      currentGroupName = name;
+      document.getElementById("chatTitle").textContent = `Chat: ${name}`;
+      loadMessages();
+    }
+
+    function loadMessages() {
+      const messagesDiv = document.getElementById("messages");
+      messagesDiv.innerHTML = "";
+
+      db.ref(`chats/${currentGroup}`).off();
+      db.ref(`chats/${currentGroup}`).on("child_added", snap => {
+        const msg = snap.val();
+        const div = document.createElement("div");
+        div.textContent = `${msg.name}: ${msg.text}`;
+        messagesDiv.appendChild(div);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      });
+
+      setupTypingStatus();
+    }
+
+    function sendMessage() {
+      const input = document.getElementById("messageInput");
+      const text = input.value.trim();
+      if (!text) return;
+
+      db.ref(`chats/${currentGroup}`).push({
+        name: currentUser.displayName,
+        text: text,
+        timestamp: Date.now()
+      });
+
+      input.value = "";
+      if (typingRef) typingRef.remove();
+    }
+
+    function updateTyping() {
+      if (!currentGroup) return;
+      typingRef = db.ref(`typing/${currentGroup}/${currentUser.uid}`);
+      typingRef.set(currentUser.displayName);
+      typingRef.onDisconnect().remove();
+    }
+
+    function setupTypingStatus() {
+      const status = document.getElementById("typingStatus");
+      db.ref(`typing/${currentGroup}`).on("value", snap => {
+        const data = snap.val() || {};
+        const names = Object.keys(data).filter(id => id !== currentUser.uid).map(id => data[id]);
+        status.textContent = names.length ? `${names.join(", ")} typing...` : "";
+      });
+    }
+  </script>
+</body>
+</html>
