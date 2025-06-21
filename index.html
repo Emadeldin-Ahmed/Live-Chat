@@ -5,6 +5,8 @@
   <style>
     body { font-family: Arial; margin: 20px; }
     #messages { border: 1px solid #ccc; height: 300px; overflow-y: scroll; padding: 10px; }
+    .message { margin-bottom: 8px; }
+    .timestamp { color: #888; font-size: 0.8em; margin-left: 8px; }
     input, button { margin-top: 10px; padding: 10px; font-size: 16px; width: 100%; }
   </style>
 </head>
@@ -34,19 +36,45 @@
     const db = firebase.database();
 
     function sendMessage() {
-      const name = document.getElementById("name").value;
-      const message = document.getElementById("message").value;
+      const name = document.getElementById("name").value.trim();
+      const message = document.getElementById("message").value.trim();
       if (name && message) {
-        db.ref("messages").push({ name, message });
+        const timestamp = Date.now(); // save current time in milliseconds
+        db.ref("messages").push({ name, message, timestamp });
         document.getElementById("message").value = "";
       }
+    }
+
+    // Format timestamp as requested
+    function formatTimestamp(ts) {
+      const messageTime = new Date(ts);
+      const now = new Date();
+      const diffMs = now - messageTime;
+      const diffMins = Math.floor(diffMs / 60000);
+
+      if (diffMins < 1) return "just now";
+      if (diffMins < 10) return `${diffMins} minutes ago`;
+      return messageTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     db.ref("messages").on("child_added", (data) => {
       const msg = data.val();
       const messagesDiv = document.getElementById("messages");
+
       const msgEl = document.createElement("div");
-      msgEl.textContent = `${msg.name}: ${msg.message}`;
+      msgEl.classList.add("message");
+
+      // Create message text span
+      const textSpan = document.createElement("span");
+      textSpan.textContent = `${msg.name}: ${msg.message}`;
+
+      // Create timestamp span
+      const timeSpan = document.createElement("span");
+      timeSpan.classList.add("timestamp");
+      timeSpan.textContent = formatTimestamp(msg.timestamp);
+
+      msgEl.appendChild(textSpan);
+      msgEl.appendChild(timeSpan);
       messagesDiv.appendChild(msgEl);
       messagesDiv.scrollTop = messagesDiv.scrollHeight;
     });
