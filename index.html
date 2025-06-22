@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Public Chat</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #f1f1f1;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    #auth {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+
+    #chatUI {
+      flex: 1;
+      display: none;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background-color: white;
+      box-sizing: border-box;
+    }
+
+    .bubble {
+      max-width: 70%;
+      padding: 10px 14px;
+      border-radius: 20px;
+      position: relative;
+      display: inline-block;
+      word-wrap: break-word;
+    }
+
+    .bubble.self {
+      background-color: #007aff;
+      color: white;
+      align-self: flex-end;
+    }
+
+    .bubble.other {
+      background-color: #e5e5ea;
+      color: black;
+      align-self: flex-start;
+    }
+
+    .timestamp {
+      font-size: 10px;
+      color: #999;
+      margin-top: 2px;
+      text-align: right;
+    }
+
+    #typing {
+      font-style: italic;
+      color: #555;
+      padding-left: 15px;
+      margin: 3px 0;
+      height: 18px;
+      min-height: 18px;
+    }
+
+    #input {
+      display: flex;
+      padding: 10px;
+      background-color: white;
+      box-sizing: border-box;
+      border-top: 1px solid #ccc;
+    }
+
+    #input input {
+      flex: 1;
+      padding: 10px;
+      border-radius: 20px;
+      border: 1px solid #ccc;
+      font-size: 16px;
+      outline: none;
+    }
+
+    #input button {
+      margin-left: 10px;
+      padding: 10px 20px;
+      border: none;
+      background-color: #007aff;
+      color: white;
+      font-weight: bold;
+      border-radius: 20px;
+      cursor: pointer;
+    }
+
+    #sign-out {
+      background: none;
+      border: none;
+      color: red;
+      padding: 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="auth">
+    <h2>Welcome to Public Chat</h2>
+    <button onclick="signInWithGoogle()">Sign in with Google</button>
+    <button onclick="signInAnonymously()">Continue as Guest</button>
+  </div>
+
+  <div id="chatUI">
+    <div id="chat"></div>
+    <div id="typing"></div>
+    <div id="input">
+      <input type="text" id="message" placeholder="Message..." autocomplete="off" />
+      <button onclick="sendMessage()">Send</button>
+    </div>
+    <button id="sign-out" onclick="signOut()">Sign Out</button>
+  </div>
+
+  <audio id="notify-sound" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCs7FPXY5C4TtNl2N2HVOocbDz6gzSyeu0",
+      authDomain: "chat-live-a1267.firebaseapp.com",
+      databaseURL: "https://chat-live-a1267-default-rtdb.firebaseio.com",
+      projectId: "chat-live-a1267",
+      storageBucket: "chat-live-a1267.appspot.com",
+      messagingSenderId: "285360741601",
+      appId: "1:285360741601:web:4842d1c6d457d3e9e0eba0"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.database();
+
+    let currentUser = null;
+    let displayName = "";
+    let typingTimeout = null;
+    let typingRef = null;
+
+    function signInWithGoogle() {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      auth.signInWithPopup(provider).catch(console.error);
+    }
+
+    function signInAnonymously() {
+      auth.signInAnonymously().catch(console.error);
+    }
+
+    function signOut() {
+      auth.signOut().then(() => {
+        location.reload(); // reload to show login options again
+      });
+    }
+
+    auth.onAuthStateChanged(user => {
+      if (user) {
+        currentUser = user;
+        displayName = user.displayName || "Guest";
+        document.getElementById("auth").style.display = "none";
+        document.getElementById("chatUI").style.display = "flex";
+        document.getElementById("message").focus();
+
+        if (user.isAnonymous && !user.displayName) {
+          const name = prompt("Enter your name:");
+          if (name) {
+            displayName = name;
+            user.updateProfile({ displayName: name });
+          }
+        }
+
+        cleanupOldMessages();
+      } else {
+        document.getElementById("auth").style.display = "flex";
+        document.getElementById("chatUI").style.display = "none";
+      }
+    });
+
+    function timeAgo(ts) {
+      const diff = Date.now() - ts;
+      if (diff < 60000) return "just now";
+      if (diff < 3600000) return Math.floor(diff / 60000) + "m ago";
+      if (diff < 86400000) return Math.floor(diff / 3600000) + "h ago";
+      return Math.floor(diff / 86400000) + "d ago";
+    }
+
+    function cleanupOldMessages() {
+      const cutoff = Date.now() - 24 * 3600 * 1000;
+      db.ref("publicMessages").orderByChild("timestamp").endAt(cutoff).once("value", snapshot => {
+        const msgs = snapshot.val() || {};
+        Object.keys(msgs).forEach(key => {
+          db.ref("publicMessages/" + key).remove().catch(console.error);
+        });
+      });
+    }
+
+    const chatDiv = document.getElementById("chat");
+    const typingDiv = document.getElementById("typing");
+    const notifySound = document.getElementById("notify-sound");
+
+    db.ref("publicMessages").on("child_added", snapshot => {
+      const msg = snapshot.val();
+      if (!msg || !msg.text || !msg.name) return;
+      if (!msg.timestamp) msg.timestamp = Date.now();
+
+      const bubble = document.createElement("div");
+      bubble.className = "bubble " + (msg.uid === (currentUser?.uid || "") ? "self" : "other");
+      bubble.textContent = `${msg.name}: ${msg.text}`;
+
+      const ts = document.createElement("div");
+      ts.className = "timestamp";
+      ts.textContent = timeAgo(msg.timestamp);
+
+      chatDiv.appendChild(bubble);
+      chatDiv.appendChild(ts);
+      chatDiv.scrollTop = chatDiv.scrollHeight;
+
+      if (msg.uid !== currentUser?.uid) {
+        notifySound.play().catch(() => {});
+      }
+    });
+
+    function sendMessage() {
+      const input = document.getElementById("message");
+      const text = input.value.trim();
+      if (text && currentUser) {
+        db.ref("publicMessages").push({
+          name: displayName,
+          uid: currentUser.uid,
+          text,
+          timestamp: Date.now()
+        }).catch(console.error);
+        input.value = "";
+        sendTyping(false);
+      }
+    }
+
+    function sendTyping(status = true) {
+      if (!currentUser) return;
+      if (!typingRef) {
+        typingRef = db.ref(`typing/${currentUser.uid}`);
+      }
+      typingRef.set(status).catch(console.error);
+      clearTimeout(typingTimeout);
+      if (status) {
+        typingTimeout = setTimeout(() => sendTyping(false), 2000);
+      }
+    }
+
+    db.ref("typing").on("value", snap => {
+      const data = snap.val() || {};
+      const typingUsers = Object.entries(data)
+        .filter(([uid, val]) => uid !== currentUser?.uid && val)
+        .map(([uid]) => uid);
+
+      if (typingUsers.length > 0) {
+        typingDiv.textContent = "Someone is typing...";
+      } else {
+        typingDiv.textContent = "";
+      }
+    });
+
+    document.getElementById("message").addEventListener("input", () => {
+      sendTyping(true);
+    });
+  </script>
+</body>
+</html>
